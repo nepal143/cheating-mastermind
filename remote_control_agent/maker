@@ -1,0 +1,111 @@
+# Makefile for Remote Desktop Server
+# Usage: make, make clean, make debug
+
+CXX = g++
+CXXFLAGS = -std=c++14 -Wall -Wextra -O2
+DEBUGFLAGS = -std=c++14 -Wall -Wextra -g -DDEBUG
+LIBS = -lws2_32 -lgdi32 -luser32
+STATIC_FLAGS = -static-libgcc -static-libstdc++
+
+# Source files
+SOURCES = main.cpp screen_capture.cpp input_control.cpp
+HEADERS = screen_capture.h input_control.h
+OBJECTS = $(SOURCES:.cpp=.o)
+
+# Target executable
+TARGET = remote_desktop_server.exe
+DEBUG_TARGET = remote_desktop_server_debug.exe
+
+# Default target
+all: $(TARGET)
+
+# Release build
+$(TARGET): $(OBJECTS)
+	@echo "🔗 Linking release build..."
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LIBS) $(STATIC_FLAGS)
+	@echo "✅ Release build complete: $(TARGET)"
+
+# Debug build
+debug: CXXFLAGS = $(DEBUGFLAGS)
+debug: TARGET = $(DEBUG_TARGET)
+debug: $(DEBUG_TARGET)
+
+$(DEBUG_TARGET): $(OBJECTS)
+	@echo "🔗 Linking debug build..."
+	$(CXX) $(DEBUGFLAGS) -o $@ $^ $(LIBS) $(STATIC_FLAGS)
+	@echo "✅ Debug build complete: $(DEBUG_TARGET)"
+
+# Compile source files
+%.o: %.cpp $(HEADERS)
+	@echo "🔨 Compiling $<..."
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Clean build artifacts
+clean:
+	@echo "🧹 Cleaning build artifacts..."
+	@if exist *.o del /Q *.o
+	@if exist $(TARGET) del /Q $(TARGET)
+	@if exist $(DEBUG_TARGET) del /Q $(DEBUG_TARGET)
+	@echo "✅ Clean complete"
+
+# Install dependencies (Windows with MinGW)
+install-deps:
+	@echo "📦 Checking MinGW installation..."
+	@where g++ >nul 2>&1 || (echo "❌ MinGW not found! Please install MinGW-w64" && exit 1)
+	@echo "✅ MinGW found"
+
+# Run the server
+run: $(TARGET)
+	@echo "🚀 Starting Remote Desktop Server..."
+	./$(TARGET)
+
+# Run debug version
+run-debug: $(DEBUG_TARGET)
+	@echo "🐛 Starting Remote Desktop Server (Debug)..."
+	./$(DEBUG_TARGET)
+
+# Check for common issues
+check:
+	@echo "🔍 Running system checks..."
+	@echo "Checking for required headers..."
+	@echo "#include <windows.h>" | $(CXX) -x c++ -c - -o nul 2>&1 && echo "✅ Windows headers OK" || echo "❌ Windows headers missing"
+	@echo "#include <winsock2.h>" | $(CXX) -x c++ -c - -o nul 2>&1 && echo "✅ Winsock headers OK" || echo "❌ Winsock headers missing"
+	@echo "Checking compiler version..."
+	@$(CXX) --version
+	@echo "✅ System check complete"
+
+# Create distribution package
+dist: clean $(TARGET)
+	@echo "📦 Creating distribution package..."
+	@if not exist dist mkdir dist
+	@copy $(TARGET) dist\
+	@copy *.h dist\
+	@copy README.md dist\ 2>nul || echo "README.md not found, skipping..."
+	@echo "✅ Distribution created in dist/ folder"
+
+# Help target
+help:
+	@echo "🛠️  Remote Desktop Server Makefile"
+	@echo ""
+	@echo "Available targets:"
+	@echo "  all          - Build release version (default)"
+	@echo "  debug        - Build debug version with symbols"
+	@echo "  clean        - Remove build artifacts"
+	@echo "  install-deps - Check MinGW installation"
+	@echo "  run          - Build and run release version"
+	@echo "  run-debug    - Build and run debug version"
+	@echo "  check        - Run system compatibility checks"
+	@echo "  dist         - Create distribution package"
+	@echo "  help         - Show this help message"
+	@echo ""
+	@echo "Examples:"
+	@echo "  make              # Build release version"
+	@echo "  make debug        # Build debug version"
+	@echo "  make run          # Build and run"
+	@echo "  make clean all    # Clean and rebuild"
+
+# Phony targets
+.PHONY: all debug clean install-deps run run-debug check dist help
+
+# Default target when just running 'make'
+.DEFAULT_GOAL := all

@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Remote Desktop Client</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            color: white;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .controls {
+            background: #2d2d2d;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .controls input, .controls button {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 4px;
+            background: #404040;
+            color: white;
+            font-size: 14px;
+        }
+        
+        .controls button {
+            background: #0066cc;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .controls button:hover {
+            background: #0052a3;
+        }
+        
+        .controls button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        
+        .status {
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        
+        .status.connected {
+            background: #0d4f0d;
+            color: #4ade80;
+        }
+        
+        .status.disconnected {
+            background: #4f0d0d;
+            color: #f87171;
+        }
+        
+        .screen-container {
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+            display: inline-block;
+            max-width: 100%;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+        
+        #remoteScreen {
+            display: block;
+            max-width: 100%;
+            height: auto;
+            cursor: crosshair;
+        }
+        
+        .stats {
+            background: #2d2d2d;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        
+        .stat-item {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #0066cc;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 4px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #aaa;
+        }
+        
+        .error {
+            background: #4f0d0d;
+            color: #f87171;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🖥️ Remote Desktop Client</h1>
+        
+        <div class="controls">
+            <input type="text" id="serverIP" placeholder="Server IP" value="127.0.0.1">
+            <input type="number" id="serverPort" placeholder="Port" value="8888" min="1" max="65535">
+            <button id="connectBtn" onclick="connect()">Connect</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+            <div id="connectionStatus" class="status disconnected">Disconnected</div>
+        </div>
+        
+        <div id="errorContainer"></div>
+        
+        <div id="loadingContainer" class="loading" style="display: none;">
+            <h3>🔄 Connecting to remote desktop...</h3>
+            <p>Please wait while we establish the connection.</p>
+        </div>
+        
+        <div class="screen-container" id="screenContainer" style="display: none;">
+            <canvas id="remoteScreen"></canvas>
+        </div>
+        
+        <div class="stats" id="statsContainer" style="display: none;">
+            <div class="stat-item">
+                <div class="stat-value" id="framesReceived">0</div>
+                <div class="stat-label">Frames Received</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="fps">0</div>
+                <div class="stat-label">FPS</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="latency">0ms</div>
+                <div class="stat-label">Latency</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="dataTransferred">0 KB</div>
+                <div class="stat-label">Data Transferred</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let canvas = null;
+        let ctx = null;
+        let isConnected = false;
+        let frameCount = 0;
+        let lastFrameTime = 0;
+        let currentFPS = 0;
+        let totalDataTransferred = 0;
+        let mousePressed = false;
+        
+        // Initialize canvas
+        function initCanvas() {
+            canvas = document.getElementById('remoteScreen');
+            ctx = canvas.getContext('2d');
+            
+            // Add mouse event listeners
+            canvas.addEventListener('mousemove', handleMouseMove);
+            canvas.addEventListener('mousedown', handleMouseDown);
+            canvas.addEventListener('mouseup', handleMouseUp);
+            canvas.addEventListener('contextmenu', e => e.preventDefault());
+        }
+        
+        function connect() {
+            const serverIP = document.getElementById('serverIP').value;
+            const serverPort = document.getElementById('serverPort').value;
+            
+            if (!serverIP || !serverPort) {
+                showError('Please enter server IP and port');
+                return;
+            }
+            
+            showLoading(true);
+            updateStatus('connecting', 'Connecting...');
+            
+            // Note: This is a simplified WebSocket approach
+            // For actual implementation, you'd need a WebSocket server
+            // that bridges to your TCP server, or use WebRTC
+            
+            try {
+                ws = new WebSocket(`ws://${serverIP}:${parseInt(serverPort) + 1}`);
+                
+                ws.onopen = function() {
+                    isConnected = true;
+                    updateStatus('connected', 'Connected');
+                    showLoading(false);
+                    document.getElementById('screenContainer').style.display = 'block';
+                    document.getElementById('statsContainer').style.display = 'block';
+                    document.getElementById('connectBtn').disabled = true;
+                    document.getElementById('disconnectBtn').disabled = false;
+                };
+                
+                ws.onmessage = function(event) {
+                    if (event.data instanceof Blob) {
+                        handleScreenFrame(event.data);
+                    }
+                };
+                
+                ws.onclose = function() {
+                    disconnect();
+                };
+                
+                ws.onerror = function(error) {
+                    showError('Connection failed: ' + error);
+                    showLoading(false);
+                };
+                
+            } catch (error) {
+                showError('Failed to connect: ' + error.message);
+                showLoading(false);
+            }
+        }
+        
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            
+            isConnected = false;
+            updateStatus('disconnected', 'Disconnected');
+            document.getElementById('screenContainer').style.display = 'none';
+            document.getElementById('statsContainer').style.display = 'none';
+            document.getElementById('connectBtn').disabled = false;
+            document.getElementById('disconnectBtn').disabled = true;
+            
+            // Reset stats
+            frameCount = 0;
+            totalDataTransferred = 0;
+            updateStats();
+        }
+        
+        function handleScreenFrame(blob) {
+            const img = new Image();
+            img.onload = function() {
+                // Update canvas size if needed
+                if (canvas.width !== img.width || canvas.height !== img.height) {
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                }
+                
+                // Draw the frame
+                ctx.drawImage(img, 0, 0);
+                
+                // Update statistics
+                frameCount++;
+                totalDataTransferred += blob.size;
+                
+                const now = Date.now();
+                if (lastFrameTime > 0) {
+                    const timeDiff = now - lastFrameTime;
+                    currentFPS = Math.round(1000 / timeDiff);
+                }
+                lastFrameTime = now;
+                
+                updateStats();
+            };
+            
+            // Convert blob to data URL for image
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(blob);
+        }
+        
+        function handleMouseMove(event) {
+            if (!isConnected) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            
+            const x = Math.round((event.clientX - rect.left) * scaleX);
+            const y = Math.round((event.clientY - rect.top) * scaleY);
+            
+            sendMouseEvent(1, x, y); // Mouse move
+        }
+        
+        function handleMouseDown(event) {
+            if (!isConnected) return;
+            
+            event.preventDefault();
+            mousePressed = true;
+            
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            
+            const x = Math.round((event.clientX - rect.left) * scaleX);
+            const y = Math.round((event.clientY - rect.top) * scaleY);
+            
+            if (event.button === 0) { // Left click
+                sendMouseEvent(2, x, y); // Left button down
+            } else if (event.button === 2) { // Right click
+                sendMouseEvent(4, x, y); // Right button down
+            }
+        }
+        
+        function handleMouseUp(event) {
+            if (!isConnected || !mousePressed) return;
+            
+            event.preventDefault();
+            mousePressed = false;
+            
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            
+            const x = Math.round((event.clientX - rect.left) * scaleX);
+            const y = Math.round((event.clientY - rect.top) * scaleY);
+            
+            if (event.button === 0) { // Left click
+                sendMouseEvent(3, x, y); // Left button up
+            } else if (event.button === 2) { // Right click
+                sendMouseEvent(5, x, y); // Right button up
+            }
+        }
+        
+        function sendMouseEvent(type, x, y) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            
+            const mouseEvent = {
+                eventType: 1, // Mouse event
+                type: type,
+                x: x,
+                y: y
+            };
+            
+            ws.send(JSON.stringify(mouseEvent));
+        }
+        
+        function updateStatus(type, message) {
+            const statusElement = document.getElementById('connectionStatus');
+            statusElement.className = `status ${type}`;
+            statusElement.textContent = message;
+        }
+        
+        function showLoading(show) {
+            document.getElementById('loadingContainer').style.display = show ? 'block' : 'none';
+        }
+        
+        function showError(message) {
+            const errorContainer = document.getElementById('errorContainer');
+            errorContainer.innerHTML = `<div class="error">❌ ${message}</div>`;
+            setTimeout(() => {
+                errorContainer.innerHTML = '';
+            }, 5000);
+        }
+        
+        function updateStats() {
+            document.getElementById('framesReceived').textContent = frameCount;
+            document.getElementById('fps').textContent = currentFPS;
+            document.getElementById('latency').textContent = '50ms'; // Placeholder
+            document.getElementById('dataTransferred').textContent = 
+                Math.round(totalDataTransferred / 1024) + ' KB';
+        }
+        
+        // Initialize when page loads
+        window.onload = function() {
+            initCanvas();
+            
+            // Add keyboard event listeners
+            document.addEventListener('keydown', function(event) {
+                if (!isConnected) return;
+                
+                // Send keyboard events to server
+                const keyEvent = {
+                    eventType: 2, // Keyboard event
+                    type: 1, // Key down
+                    keyCode: event.keyCode
+                };
+                
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify(keyEvent));
+                }
+                
+                // Prevent default for certain keys to avoid browser shortcuts
+                if ([9, 32, 37, 38, 39, 40].includes(event.keyCode)) {
+                    event.preventDefault();
+                }
+            });
+            
+            document.addEventListener('keyup', function(event) {
+                if (!isConnected) return;
+                
+                const keyEvent = {
+                    eventType: 2, // Keyboard event
+                    type: 2, // Key up
+                    keyCode: event.keyCode
+                };
+                
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify(keyEvent));
+                }
+            });
+        };
+        
+        // Handle window resize
+        window.addEventListener('resize', function() {
+            if (canvas && ctx) {
+                // Canvas will maintain its internal resolution
+                // CSS will handle the scaling
+            }
+        });
+    </script>
+</body>
+</html>
