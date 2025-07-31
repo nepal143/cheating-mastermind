@@ -306,24 +306,31 @@ void InputHandlingThread() {
 }
 
 void HandleClient(SOCKET socket) {
+    std::cout << "=== NEW CLIENT CONNECTION ===" << std::endl;
     std::cout << "Client attempting connection..." << std::endl;
     
     // Receive authentication
     PasswordAuth auth;
     if (!ReceiveData(socket, &auth, sizeof(auth))) {
-        std::cout << "Failed to receive authentication" << std::endl;
+        std::cout << "ERROR: Failed to receive authentication data" << std::endl;
+        std::cout << "Error code: " << WSAGetLastError() << std::endl;
         closesocket(socket);
         return;
     }
+    
+    std::cout << "Received authentication attempt with password: '" << auth.password << "'" << std::endl;
+    std::cout << "Expected password: '" << g_serverPassword << "'" << std::endl;
     
     // Check password
     if (g_serverPassword != std::string(auth.password)) {
-        std::cout << "Authentication failed - wrong password: " << auth.password << std::endl;
+        std::cout << "AUTHENTICATION FAILED - Wrong password!" << std::endl;
+        std::cout << "Client provided: '" << auth.password << "'" << std::endl;
+        std::cout << "Expected: '" << g_serverPassword << "'" << std::endl;
         closesocket(socket);
         return;
     }
     
-    std::cout << "Client authenticated successfully!" << std::endl;
+    std::cout << "*** AUTHENTICATION SUCCESSFUL! ***" << std::endl;
     
     // Set the global client socket
     clientSocket.store(socket);
@@ -332,27 +339,46 @@ void HandleClient(SOCKET socket) {
     uint32_t width = GetSystemMetrics(SM_CXSCREEN);
     uint32_t height = GetSystemMetrics(SM_CYSCREEN);
     
+    std::cout << "Sending screen dimensions: " << width << "x" << height << std::endl;
+    
     if (!SendData(socket, &width, sizeof(width)) ||
         !SendData(socket, &height, sizeof(height))) {
-        std::cout << "Failed to send initial screen info" << std::endl;
+        std::cout << "ERROR: Failed to send initial screen info" << std::endl;
+        std::cout << "Error code: " << WSAGetLastError() << std::endl;
         clientSocket.store(INVALID_SOCKET);
         closesocket(socket);
         return;
     }
     
-    std::cout << "Sent screen dimensions: " << width << "x" << height << std::endl;
-    std::cout << "Remote control session active! Press Ctrl+C to stop." << std::endl;
+    std::cout << "*** REMOTE CONTROL SESSION STARTED ***" << std::endl;
+    std::cout << "Screen sharing active!" << std::endl;
+    std::cout << "The remote user can now see and control this computer." << std::endl;
+    std::cout << "Press Ctrl+C to stop the server." << std::endl;
+    std::cout << "======================================" << std::endl;
     
-    // Wait for client to disconnect
+    // Keep connection alive and monitor
     char keepAlive;
+    int heartbeatCount = 0;
     while (running && clientSocket.load() != INVALID_SOCKET) {
         int result = recv(socket, &keepAlive, 1, MSG_PEEK);
         if (result <= 0) {
-            break;
+            int error = WSAGetLastError();
+            if (error != WSAEWOULDBLOCK) {
+                std::cout << "Client connection lost. Error: " << error << std::endl;
+                break;
+            }
         }
+        
+        heartbeatCount++;
+        if (heartbeatCount % 50 == 0) { // Every ~5 seconds
+            std::cout << "Session active... (heartbeat " << (heartbeatCount/50) << ")" << std::endl;
+        }
+        
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     
+    std::cout << std::endl;
+    std::cout << "=== SESSION ENDED ===" << std::endl;
     std::cout << "Client disconnected" << std::endl;
     clientSocket.store(INVALID_SOCKET);
     closesocket(socket);

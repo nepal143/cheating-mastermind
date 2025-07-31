@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <sstream>
 #include <string>
+#include <iomanip>
 
 #pragma comment(lib, "Ws2_32.lib")
 
@@ -87,51 +88,77 @@ void ScreenReceiveThread() {
     int frameCount = 0;
     
     std::cout << "Starting to receive screen frames..." << std::endl;
+    std::cout << "Press Ctrl+C to stop or wait for 100 frames..." << std::endl;
     
-    while (running && frameCount < 50) { // Limit frames for demo
+    while (running && frameCount < 100) { // More frames for longer session
         ScreenFrame frameHeader;
         
+        std::cout << "Waiting for frame " << (frameCount + 1) << "..." << std::endl;
+        
         if (!ReceiveData(clientSocket, &frameHeader, sizeof(frameHeader))) {
-            std::cout << "Failed to receive frame header" << std::endl;
+            std::cout << "ERROR: Failed to receive frame header. Connection lost!" << std::endl;
+            std::cout << "Error code: " << WSAGetLastError() << std::endl;
             break;
         }
         
+        std::cout << "Receiving frame data (" << frameHeader.dataSize << " bytes)..." << std::endl;
+        
         std::vector<unsigned char> imageData(frameHeader.dataSize);
         if (!ReceiveData(clientSocket, imageData.data(), frameHeader.dataSize)) {
-            std::cout << "Failed to receive image data" << std::endl;
+            std::cout << "ERROR: Failed to receive image data. Connection lost!" << std::endl;
+            std::cout << "Error code: " << WSAGetLastError() << std::endl;
             break;
         }
         
         // Save frame to file
         std::ostringstream filename;
-        filename << "frame_" << frameCount++ << ".bmp";
+        filename << "remote_screen_" << std::setfill('0') << std::setw(3) << frameCount++ << ".bmp";
         std::ofstream file(filename.str().c_str(), std::ios::binary);
         if (file.is_open()) {
             file.write(reinterpret_cast<const char*>(imageData.data()), imageData.size());
             file.close();
-            std::cout << "Saved " << filename.str() << " (" << frameHeader.width 
-                      << "x" << frameHeader.height << ")" << std::endl;
+            std::cout << "SUCCESS: Saved " << filename.str() << " (" << frameHeader.width 
+                      << "x" << frameHeader.height << ", " << frameHeader.dataSize << " bytes)" << std::endl;
+        } else {
+            std::cout << "ERROR: Failed to save frame to file!" << std::endl;
         }
         
         // Send some test mouse movements
         if (frameCount == 5) {
-            std::cout << "Sending test mouse click..." << std::endl;
-            SendMouseEvent(1, 200, 200); // Move
-            Sleep(100);
-            SendMouseEvent(2, 200, 200); // Left down
-            Sleep(50);
-            SendMouseEvent(3, 200, 200); // Left up
+            std::cout << "*** Sending test mouse movements ***" << std::endl;
+            SendMouseEvent(1, 100, 100); // Move to 100,100
+            Sleep(200);
+            SendMouseEvent(1, 300, 300); // Move to 300,300
+            Sleep(200);
+            std::cout << "*** Mouse movement test completed ***" << std::endl;
         }
         
         if (frameCount == 10) {
-            std::cout << "Sending test key press..." << std::endl;
-            SendKeyEvent(VK_SPACE, true);  // Space down
-            Sleep(50);
-            SendKeyEvent(VK_SPACE, false); // Space up
+            std::cout << "*** Sending test mouse click ***" << std::endl;
+            SendMouseEvent(2, 300, 300); // Left down
+            Sleep(100);
+            SendMouseEvent(3, 300, 300); // Left up
+            std::cout << "*** Mouse click test completed ***" << std::endl;
         }
+        
+        if (frameCount == 15) {
+            std::cout << "*** Sending test key press (Windows key) ***" << std::endl;
+            SendKeyEvent(VK_LWIN, true);  // Windows key down
+            Sleep(50);
+            SendKeyEvent(VK_LWIN, false); // Windows key up
+            std::cout << "*** Key press test completed ***" << std::endl;
+        }
+        
+        // Add small delay between frames
+        Sleep(100);
     }
     
-    std::cout << "Received " << frameCount << " frames" << std::endl;
+    std::cout << std::endl;
+    std::cout << "=== SESSION COMPLETE ===" << std::endl;
+    std::cout << "Total frames received: " << frameCount << std::endl;
+    std::cout << "Check the saved BMP files to see the remote screen!" << std::endl;
+    std::cout << "Files saved as: remote_screen_000.bmp, remote_screen_001.bmp, etc." << std::endl;
+    
     running = false;
 }
 
@@ -235,7 +262,18 @@ int main(int argc, char* argv[]) {
     WSACleanup();
     
     std::cout << "Disconnected. Check the saved BMP files to see the remote screen!" << std::endl;
+    std::cout << "Files will be named: remote_screen_000.bmp, remote_screen_001.bmp, etc." << std::endl;
+    std::cout << "You can open these with any image viewer to see what was on the remote screen." << std::endl;
+    std::cout << std::endl;
+    std::cout << "=== REMOTE CONTROL TEST RESULTS ===" << std::endl;
+    std::cout << "- Mouse movements were sent at frame 5" << std::endl;
+    std::cout << "- Mouse click was sent at frame 10" << std::endl;
+    std::cout << "- Windows key press was sent at frame 15" << std::endl;
+    std::cout << "Check if these actions occurred on the remote computer!" << std::endl;
+    std::cout << std::endl;
     std::cout << "Press Enter to exit..." << std::endl;
+    std::cin.clear();
+    std::cin.ignore(10000, '\n');
     std::cin.get();
     
     return 0;
